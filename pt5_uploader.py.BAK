@@ -313,36 +313,36 @@ def upload_files(args: argparse.Namespace) -> bool:
             return True
             
         # Log initial file count
-        logger.info(f"{Fore.CYAN}Found {len(files)} files to upload{Style.RESET_ALL}")
+        total_files = len(files)
+        logger.info(f"{Fore.CYAN}Found {total_files} files to upload{Style.RESET_ALL}")
             
         success = True
-        max_workers = min(32, len(files))  # Limit to 32 concurrent uploads
+        max_workers = min(32, total_files)  # Limit to 32 concurrent uploads
         logger.info(f"{Fore.CYAN}Using {max_workers} concurrent workers{Style.RESET_ALL}")
         
         # Initialize statistics
         total_size = 0
         start_time = time.time()
         
-        # Create progress bar for total files with smaller update interval
-        with tqdm(total=len(files), desc="Uploading files", unit="file",
-                 mininterval=0.1,  # Update at least every 0.1 seconds
-                 maxinterval=1.0,  # Update at most every 1.0 seconds
-                 smoothing=0.1) as pbar:  # Smoother progress updates
-            logger.info(f"{Fore.CYAN}Starting ThreadPoolExecutor with {max_workers} workers{Style.RESET_ALL}")
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_file = {}
+        logger.info(f"{Fore.CYAN}Starting ThreadPoolExecutor with {max_workers} workers{Style.RESET_ALL}")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_file = {}
+            
+            # Submit all files first
+            for local_path, s3_key in files:
+                # Combine prefix and s3_key without extra slashes
+                full_s3_key = os.path.join(args.prefix, s3_key).replace('\\', '/')
+                logger.debug(f"{Fore.CYAN}Submitting upload for {local_path}{Style.RESET_ALL}")
+                future = executor.submit(
+                    upload_file, s3_client, local_path, args.bucket,
+                    full_s3_key, args.dry_run
+                )
+                future_to_file[future] = local_path
                 
-                for local_path, s3_key in files:
-                    # Combine prefix and s3_key without extra slashes
-                    full_s3_key = os.path.join(args.prefix, s3_key).replace('\\', '/')
-                    logger.debug(f"{Fore.CYAN}Submitting upload for {local_path}{Style.RESET_ALL}")
-                    future = executor.submit(
-                        upload_file, s3_client, local_path, args.bucket,
-                        full_s3_key, args.dry_run
-                    )
-                    future_to_file[future] = local_path
-                    
-                logger.info(f"{Fore.CYAN}All uploads submitted, waiting for completion{Style.RESET_ALL}")
+            logger.info(f"{Fore.CYAN}All uploads submitted, waiting for completion{Style.RESET_ALL}")
+            
+            # Create progress bar after all files are submitted
+            with tqdm(total=total_files, desc="Uploading files", unit="file") as pbar:
                 for future in as_completed(future_to_file):
                     file_path = future_to_file[future]
                     try:
@@ -360,7 +360,7 @@ def upload_files(args: argparse.Namespace) -> bool:
                         pbar.update(1)  # Update progress even on error
                         
         # Print summary report
-        print_summary_report(len(files), total_size, start_time)
+        print_summary_report(total_files, total_size, start_time)
         return success
         
     except Exception as e:
