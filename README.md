@@ -1,14 +1,21 @@
 # PT5 Uploader
 
-A Python-based tool for uploading files to Amazon S3 with progress tracking and 
-colorized output. This tool is designed to handle both single file and directory 
-uploads with configurable options for bucket selection and file handling.
+A Python-based tool for uploading Imaging FlowCytobot (IFCB) data files to Amazon S3 as 
+part of the GCOOS ORION project. This tool is designed to handle both single file and 
+directory uploads with configurable options for bucket selection and file handling.
+
+## Overview
+
+This tool is specifically designed for the GCOOS ORION project to manage and upload IFCB 
+(Imaging FlowCytobot) data files to Amazon S3. IFCB is an automated submersible 
+flow cytometer that provides continuous, high-resolution measurements of phytoplankton 
+and microzooplankton abundance and composition.
 
 ## Features
 
 - 🔐 AWS credentials validation
-- 📁 Support for single file and directory uploads
-- 🔄 Recursive directory upload option
+- 📁 Support for IFCB data file uploads
+- 🔄 Recursive directory upload option for IFCB data directories
 - 🎨 Colorized console output
 - 📊 Progress tracking with tqdm
 - 🔍 Dry-run mode for testing
@@ -20,6 +27,7 @@ uploads with configurable options for bucket selection and file handling.
 - Python 3.6 or higher
 - AWS account with S3 access
 - AWS credentials with appropriate permissions
+- IFCB data files in the specified directory
 
 ## Installation
 
@@ -45,7 +53,7 @@ AWS_SECRET_ACCESS_KEY=your_secret_key
 AWS_DEFAULT_REGION=your_region
 AWS_S3_REGION=your_region
 AWS_UPLOAD_URL=s3://your-bucket/your-path
-IFCB_DATA_DIR=/path/to/your/data
+IFCB_DATA_DIR=/path/to/your/ifcb/data
 ```
 
 ### Environment Variables
@@ -55,7 +63,7 @@ IFCB_DATA_DIR=/path/to/your/data
 - `AWS_DEFAULT_REGION`: Default AWS region
 - `AWS_S3_REGION`: S3-specific region
 - `AWS_UPLOAD_URL`: Default S3 bucket and path (format: s3://bucket/path)
-- `IFCB_DATA_DIR`: Default source directory for uploads
+- `IFCB_DATA_DIR`: Default IFCB data directory for uploads
 
 ## Usage
 
@@ -73,10 +81,10 @@ python pt5_uploader.py [options]
 
 #### Options:
 
-- `--source`: Source file or directory to upload (defaults to IFCB_DATA_DIR)
+- `--source`: Source IFCB file or directory to upload (defaults to IFCB_DATA_DIR)
 - `--bucket`: Target S3 bucket name (defaults to bucket from AWS_UPLOAD_URL)
 - `--prefix`: S3 key prefix (optional)
-- `--recursive`: Upload directories recursively
+- `--recursive`: Upload IFCB data directories recursively
 - `--dry-run`: Show what would be uploaded without actually uploading
 - `--verbose`: Enable verbose logging
 - `--validate`: Only validate AWS credentials and exit
@@ -88,14 +96,14 @@ python pt5_uploader.py [options]
 python pt5_uploader.py --validate
 ```
 
-2. Upload a single file:
+2. Upload a single IFCB data file:
 ```bash
-python pt5_uploader.py --source /path/to/file.txt --bucket my-bucket
+python pt5_uploader.py --source /path/to/ifcb_file.txt --bucket my-bucket
 ```
 
-3. Upload a directory recursively:
+3. Upload an IFCB data directory recursively:
 ```bash
-python pt5_uploader.py --source /path/to/dir --bucket my-bucket --recursive
+python pt5_uploader.py --source /path/to/ifcb_data --bucket my-bucket --recursive
 ```
 
 4. Dry run with verbose output:
@@ -109,7 +117,7 @@ The tool provides clear error messages for common issues:
 
 - Invalid AWS credentials
 - Missing environment variables
-- Non-existent source paths
+- Non-existent IFCB data paths
 - S3 upload failures
 
 All errors are colorized for better visibility:
@@ -148,10 +156,12 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Author
 
-Neo
+robertdcurrier@tamu.edu
 
 ## Acknowledgments
 
 - AWS SDK for Python (boto3)
 - tqdm for progress bars
 - colorama for cross-platform colored output
+- GCOOS ORION project team
+- IFCB development team
