@@ -233,8 +233,10 @@ def upload_file(s3_client: boto3.client, local_path: str, bucket: str,
                        f"s3://{bucket}/{s3_key}{Style.RESET_ALL}")
             return True
             
+        logger.debug(f"{Fore.CYAN}Starting upload of {local_path}{Style.RESET_ALL}")
         with open(local_path, 'rb') as f:
             s3_client.upload_fileobj(f, bucket, s3_key)
+        logger.debug(f"{Fore.GREEN}Completed upload of {local_path}{Style.RESET_ALL}")
         return True
         
     except Exception as e:
@@ -282,11 +284,14 @@ def upload_files(args: argparse.Namespace) -> bool:
         bool: True if all uploads successful, False otherwise
     """
     try:
-        # Configure S3 client with larger connection pool
+        # Configure S3 client with larger connection pool and timeouts
         session = boto3.Session()
         config = Config(
             max_pool_connections=100,  # Increase connection pool size
-            retries={'max_attempts': 3}  # Add retry configuration
+            retries={'max_attempts': 3},  # Add retry configuration
+            connect_timeout=5,  # Connection timeout in seconds
+            read_timeout=60,    # Read timeout in seconds
+            tcp_keepalive=True  # Enable TCP keepalive
         )
         s3_client = session.client('s3', config=config)
         
@@ -312,6 +317,7 @@ def upload_files(args: argparse.Namespace) -> bool:
             
         success = True
         max_workers = min(32, len(files))  # Limit to 32 concurrent uploads
+        logger.info(f"{Fore.CYAN}Using {max_workers} concurrent workers{Style.RESET_ALL}")
         
         # Initialize statistics
         total_size = 0
@@ -319,18 +325,21 @@ def upload_files(args: argparse.Namespace) -> bool:
         
         # Create progress bar for total files
         with tqdm(total=len(files), desc="Uploading files", unit="file") as pbar:
+            logger.info(f"{Fore.CYAN}Starting ThreadPoolExecutor with {max_workers} workers{Style.RESET_ALL}")
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_file = {}
                 
                 for local_path, s3_key in files:
                     # Combine prefix and s3_key without extra slashes
                     full_s3_key = os.path.join(args.prefix, s3_key).replace('\\', '/')
+                    logger.debug(f"{Fore.CYAN}Submitting upload for {local_path}{Style.RESET_ALL}")
                     future = executor.submit(
                         upload_file, s3_client, local_path, args.bucket,
                         full_s3_key, args.dry_run
                     )
                     future_to_file[future] = local_path
                     
+                logger.info(f"{Fore.CYAN}All uploads submitted, waiting for completion{Style.RESET_ALL}")
                 for future in as_completed(future_to_file):
                     file_path = future_to_file[future]
                     try:
@@ -339,6 +348,7 @@ def upload_files(args: argparse.Namespace) -> bool:
                         # Add file size to total
                         total_size += os.path.getsize(file_path)
                         pbar.update(1)  # Update progress after each file
+                        logger.debug(f"{Fore.GREEN}Successfully uploaded {file_path}{Style.RESET_ALL}")
                     except Exception as e:
                         logger.error(f"{Fore.RED}Error uploading {file_path}: {str(e)}"
                                    f"{Style.RESET_ALL}")
