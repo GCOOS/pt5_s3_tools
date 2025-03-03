@@ -16,6 +16,8 @@ Features:
     - Concurrent file uploads (up to 32 workers)
     - Connection pool optimization (100 connections)
     - Automatic retry on failures (3 attempts)
+    - Batched file submission (1000 files per batch)
+    - Pre-computed S3 keys for improved performance
     - Overall progress tracking with tqdm
     - Detailed summary report with:
         * Total files processed
@@ -26,6 +28,11 @@ Features:
     - Dry-run mode for testing
     - Environment variable configuration
     - Detailed logging
+
+System Requirements:
+    - Python 3.6 or higher
+    - Sufficient system resources for concurrent processing
+    - Recommended: 4+ CPU cores and 8GB+ RAM for large file sets
 
 Author: robertdcurrier@tamu.edu
 """

@@ -1,39 +1,39 @@
 # PT5 Uploader
 
-A Python tool for uploading Imaging FlowCytobot (IFCB) data files to Amazon S3 as part of the GCOOS ORION project.
+A Python tool for efficiently uploading Imaging FlowCytobot (IFCB) data files to Amazon S3.
 
 ## Overview
 
-This tool is designed to efficiently upload IFCB (Imaging FlowCytobot) data files to Amazon S3. IFCB is an automated submersible flow cytometer that provides continuous, high-resolution measurements of phytoplankton and microzooplankton abundance and composition.
+This tool is designed to efficiently upload IFCB data files to Amazon S3, with optimized performance for large file sets. It includes features for concurrent processing, progress tracking, and detailed reporting.
 
 ## Features
 
-- **AWS Credentials Validation**: Verifies AWS credentials before starting uploads
-- **IFCB Data Support**: Optimized for handling IFCB data file uploads
-- **Recursive Upload**: Option to upload entire directories and subdirectories
-- **Concurrent Processing**: 
-  - Up to 32 concurrent file uploads
-  - Connection pool optimization (100 connections)
-  - Automatic retry on failures (3 attempts)
-- **Progress Tracking**:
-  - Overall progress bar showing files completed
-  - Initial file count display
-  - Detailed summary report with:
-    * Total files processed
-    * Total data transferred
-    * Upload duration
-    * Average transfer rate
-    * Files processed per second
-- **Colorized Output**: Enhanced readability with color-coded messages
-- **Dry-Run Mode**: Test uploads without actually transferring files
-- **Environment Variables**: Configure default settings via .env file
-- **Detailed Logging**: Comprehensive logging of all operations
+- AWS credentials validation
+- Support for IFCB data file uploads
+- Recursive directory upload option
+- Colorized console output
+- Concurrent file uploads (up to 32 workers)
+- Connection pool optimization (100 connections)
+- Automatic retry on failures (3 attempts)
+- Batched file submission (1000 files per batch)
+- Pre-computed S3 keys for improved performance
+- Overall progress tracking with tqdm
+- Detailed summary report with:
+  * Total files processed
+  * Total data transferred
+  * Upload duration
+  * Average transfer rate
+  * Files processed per second
+- Dry-run mode for testing
+- Environment variable configuration
+- Detailed logging
 
-## Prerequisites
+## System Requirements
 
 - Python 3.6 or higher
-- AWS credentials with S3 access
-- Required Python packages (see requirements.txt)
+- Sufficient system resources for concurrent processing
+- Recommended: 4+ CPU cores and 8GB+ RAM for large file sets
+- AWS credentials with appropriate S3 permissions
 
 ## Installation
 
@@ -43,70 +43,84 @@ git clone https://github.com/yourusername/pt5_uploader.git
 cd pt5_uploader
 ```
 
-2. Create and activate a virtual environment:
-```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-```
-
-3. Install dependencies:
+2. Install required packages:
 ```bash
 pip install -r requirements.txt
 ```
 
-## Configuration
-
-Create a `.env` file in the project root with the following variables:
-
-```env
-AWS_ACCESS_KEY_ID=your_access_key
-AWS_SECRET_ACCESS_KEY=your_secret_key
-AWS_UPLOAD_URL=s3://your-bucket/path
-IFCB_DATA_DIR=/path/to/ifcb/data
-```
+3. Configure AWS credentials:
+   - Create a `.env` file in the project root
+   - Add your AWS credentials:
+     ```
+     AWS_ACCESS_KEY_ID=your_access_key
+     AWS_SECRET_ACCESS_KEY=your_secret_key
+     AWS_UPLOAD_URL=s3://your-bucket/path
+     IFCB_DATA_DIR=/path/to/ifcb/data
+     ```
 
 ## Usage
 
 Basic usage:
 ```bash
-python pt5_uploader.py
+python pt5_uploader.py --source /path/to/files
 ```
 
 With options:
 ```bash
-# Upload recursively
-python pt5_uploader.py --recursive
-
-# Dry run to see what would be uploaded
-python pt5_uploader.py --dry-run
-
-# Validate AWS credentials only
-python pt5_uploader.py --validate
-
-# Enable verbose logging
-python pt5_uploader.py --verbose
-
-# Specify custom source and destination
-python pt5_uploader.py --source /path/to/files --bucket my-bucket --prefix my/path
+python pt5_uploader.py \
+    --source /path/to/files \
+    --bucket your-bucket \
+    --prefix path/in/bucket \
+    --recursive \
+    --verbose
 ```
+
+### Command Line Options
+
+- `--source`: Source file or directory to upload
+- `--bucket`: Target S3 bucket name
+- `--prefix`: S3 key prefix (optional)
+- `--recursive`: Upload directories recursively
+- `--dry-run`: Show what would be uploaded without actually uploading
+- `--verbose`: Enable verbose logging
+- `--validate`: Only validate AWS credentials and exit
+
+## Performance Considerations
+
+The tool is optimized for large file sets with the following features:
+- Batched file submission (1000 files per batch)
+- Pre-computed S3 keys
+- Optimized connection pooling
+- Concurrent upload processing
+
+For optimal performance, ensure your system has:
+- Sufficient CPU cores for concurrent processing
+- Adequate memory for handling large file sets
+- Fast storage for file operations
+- Reliable network connection to AWS
 
 ## Error Handling
 
-The tool includes comprehensive error handling:
+The tool includes comprehensive error handling for:
 - AWS credential validation
-- File existence checks
-- Upload retry logic
-- Detailed error messages
-- Progress tracking even during errors
+- File system operations
+- Network connectivity issues
+- S3 upload failures
 
-## Development Guidelines
+Failed uploads are logged with detailed error messages.
 
-- Follow PEP 8 style guide
+## Development
+
+### Code Style
+- Follow PEP 8 guidelines
 - Maximum line length: 79 characters
 - Maximum function length: 35 lines
 - Include docstrings for all functions
-- Use type hints
-- Add logging for important operations
+
+### Testing
+- Run tests before submitting changes
+- Include new tests for new features
+- Maintain test coverage above 80%
 
 ## Contributing
 
@@ -122,10 +136,9 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 
 ## Author
 
-robertdcurrier@tamu.edu
+Robert D. Currier (robertdcurrier@tamu.edu)
 
 ## Acknowledgments
 
-- GCOOS ORION project team
-- AWS Boto3 team
-- IFCB development team
+- AWS Boto3 team for the excellent S3 client library
+- tqdm team for the progress bar implementation
