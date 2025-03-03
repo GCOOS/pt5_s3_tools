@@ -323,7 +323,7 @@ def upload_files(args: argparse.Namespace) -> bool:
         total_size = 0
         start_time = time.time()
         
-        # Create progress bar for total files
+        # Create progress bar for total files with data rate
         with tqdm(total=len(files), desc="Uploading files", unit="file") as pbar:
             logger.info(f"{Fore.CYAN}Starting ThreadPoolExecutor with {max_workers} workers{Style.RESET_ALL}")
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -346,8 +346,16 @@ def upload_files(args: argparse.Namespace) -> bool:
                         if not future.result():
                             success = False
                         # Add file size to total
-                        total_size += os.path.getsize(file_path)
+                        file_size = os.path.getsize(file_path)
+                        total_size += file_size
                         pbar.update(1)  # Update progress after each file
+                        # Update progress bar description with current rate
+                        elapsed = time.time() - start_time
+                        if elapsed > 0:
+                            current_rate = total_size / elapsed
+                            pbar.set_description(
+                                f"Uploading files ({format_size(current_rate)}/s)"
+                            )
                         logger.debug(f"{Fore.GREEN}Successfully uploaded {file_path}{Style.RESET_ALL}")
                     except Exception as e:
                         logger.error(f"{Fore.RED}Error uploading {file_path}: {str(e)}"
