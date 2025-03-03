@@ -313,21 +313,21 @@ def upload_files(args: argparse.Namespace) -> bool:
             return True
             
         # Log initial file count
-        logger.info(f"{Fore.CYAN}Found {len(files)} files to upload{Style.RESET_ALL}")
+        total_files = len(files)
+        logger.info(f"{Fore.CYAN}Found {total_files} files to upload{Style.RESET_ALL}")
             
         success = True
-        max_workers = min(32, len(files))  # Limit to 32 concurrent uploads
+        max_workers = min(32, total_files)  # Limit to 32 concurrent uploads
         logger.info(f"{Fore.CYAN}Using {max_workers} concurrent workers{Style.RESET_ALL}")
         
         # Initialize statistics
         total_size = 0
         start_time = time.time()
+        completed_files = 0
         
-        # Create progress bar for total files with smaller update interval
-        with tqdm(total=len(files), desc="Uploading files", unit="file",
-                 mininterval=0.1,  # Update at least every 0.1 seconds
-                 maxinterval=1.0,  # Update at most every 1.0 seconds
-                 smoothing=0.1) as pbar:  # Smoother progress updates
+        # Create progress bar for total files
+        with tqdm(total=total_files, desc="Uploading files", unit="file",
+                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
             logger.info(f"{Fore.CYAN}Starting ThreadPoolExecutor with {max_workers} workers{Style.RESET_ALL}")
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_to_file = {}
@@ -351,16 +351,21 @@ def upload_files(args: argparse.Namespace) -> bool:
                         # Add file size to total
                         file_size = os.path.getsize(file_path)
                         total_size += file_size
-                        pbar.update(1)  # Update progress after each file
+                        completed_files += 1
+                        # Update progress bar
+                        pbar.n = completed_files
+                        pbar.refresh()
                         logger.debug(f"{Fore.GREEN}Successfully uploaded {file_path}{Style.RESET_ALL}")
                     except Exception as e:
                         logger.error(f"{Fore.RED}Error uploading {file_path}: {str(e)}"
                                    f"{Style.RESET_ALL}")
                         success = False
-                        pbar.update(1)  # Update progress even on error
+                        completed_files += 1
+                        pbar.n = completed_files
+                        pbar.refresh()
                         
         # Print summary report
-        print_summary_report(len(files), total_size, start_time)
+        print_summary_report(total_files, total_size, start_time)
         return success
         
     except Exception as e:
