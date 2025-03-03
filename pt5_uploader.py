@@ -56,9 +56,18 @@ init(autoreset=True)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
+    datefmt='%Y-%m-%d %H:%M:%S',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
 )
 logger = logging.getLogger(__name__)
+
+# Force immediate flushing for all log messages
+for handler in logger.handlers:
+    handler.flush = lambda: None  # Disable buffering
+    handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s',
+                                         datefmt='%Y-%m-%d %H:%M:%S'))
 
 def validate_aws_credentials() -> bool:
     """
