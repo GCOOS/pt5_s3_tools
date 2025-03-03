@@ -13,19 +13,11 @@ Features:
     - Support for IFCB data file uploads
     - Recursive directory upload option
     - Colorized console output
-    - Concurrent file uploads (up to 32 workers)
-    - Connection pool optimization (100 connections)
-    - Automatic retry on failures (3 attempts)
-    - Overall progress tracking with tqdm
-    - Detailed summary report with:
-        * Total files processed
-        * Total data transferred
-        * Upload duration
-        * Average transfer rate
-        * Files processed per second
+    - Progress tracking with tqdm
     - Dry-run mode for testing
     - Environment variable configuration
     - Detailed logging
+    - Concurrent file uploads
 
 Author: robertdcurrier@tamu.edu
 """
@@ -34,7 +26,6 @@ import argparse
 import logging
 import os
 import sys
-import time
 from typing import Optional, List, Tuple
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -215,7 +206,7 @@ def get_files_to_upload(source: str, recursive: bool = False) -> List[Tuple[str,
 def upload_file(s3_client: boto3.client, local_path: str, bucket: str, 
                 s3_key: str, dry_run: bool = False) -> bool:
     """
-    Upload a single file to S3.
+    Upload a single file to S3 with progress tracking.
     
     Args:
         s3_client: Boto3 S3 client
@@ -228,48 +219,28 @@ def upload_file(s3_client: boto3.client, local_path: str, bucket: str,
         bool: True if upload successful, False otherwise
     """
     try:
+        file_size = os.path.getsize(local_path)
+        
         if dry_run:
             logger.info(f"{Fore.CYAN}Would upload: {local_path} -> "
                        f"s3://{bucket}/{s3_key}{Style.RESET_ALL}")
             return True
             
-        with open(local_path, 'rb') as f:
-            s3_client.upload_fileobj(f, bucket, s3_key)
+        with tqdm(total=file_size, unit='B', unit_scale=True, 
+                 desc=f"Uploading {os.path.basename(local_path)}") as pbar:
+            with open(local_path, 'rb') as f:
+                s3_client.upload_fileobj(
+                    f, bucket, s3_key,
+                    Callback=lambda bytes_transferred: pbar.update(
+                        bytes_transferred - pbar.n
+                    )
+                )
         return True
         
     except Exception as e:
         logger.error(f"{Fore.RED}Error uploading {local_path}: {str(e)}"
                     f"{Style.RESET_ALL}")
         return False
-
-def format_size(size_bytes: int) -> str:
-    """Format size in bytes to human readable string."""
-    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
-        if size_bytes < 1024.0:
-            return f"{size_bytes:.2f} {unit}"
-        size_bytes /= 1024.0
-    return f"{size_bytes:.2f} PB"
-
-def print_summary_report(total_files: int, total_size: int, start_time: float) -> None:
-    """
-    Print a summary report of the upload process.
-    
-    Args:
-        total_files: Total number of files uploaded
-        total_size: Total size of files in bytes
-        start_time: Start time of upload process
-    """
-    end_time = time.time()
-    duration = end_time - start_time
-    avg_rate = total_size / duration if duration > 0 else 0
-    files_per_second = total_files / duration if duration > 0 else 0
-    
-    logger.info(f"\n{Fore.GREEN}Upload Summary Report:{Style.RESET_ALL}")
-    logger.info(f"{Fore.CYAN}Total Files:{Style.RESET_ALL} {total_files}")
-    logger.info(f"{Fore.CYAN}Total Size:{Style.RESET_ALL} {format_size(total_size)}")
-    logger.info(f"{Fore.CYAN}Duration:{Style.RESET_ALL} {duration:.2f} seconds")
-    logger.info(f"{Fore.CYAN}Average Rate:{Style.RESET_ALL} {format_size(avg_rate)}/s")
-    logger.info(f"{Fore.CYAN}Files/Second:{Style.RESET_ALL} {files_per_second:.2f}")
 
 def upload_files(args: argparse.Namespace) -> bool:
     """
@@ -307,46 +278,31 @@ def upload_files(args: argparse.Namespace) -> bool:
                            f"{Style.RESET_ALL}")
             return True
             
-        # Log initial file count
-        logger.info(f"{Fore.CYAN}Found {len(files)} files to upload{Style.RESET_ALL}")
-            
         success = True
         max_workers = min(32, len(files))  # Limit to 32 concurrent uploads
         
-        # Initialize statistics
-        total_size = 0
-        start_time = time.time()
-        
-        # Create progress bar for total files
-        with tqdm(total=len(files), desc="Uploading files", unit="file") as pbar:
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_file = {}
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_file = {}
+            
+            for local_path, s3_key in files:
+                # Combine prefix and s3_key without extra slashes
+                full_s3_key = os.path.join(args.prefix, s3_key).replace('\\', '/')
+                future = executor.submit(
+                    upload_file, s3_client, local_path, args.bucket,
+                    full_s3_key, args.dry_run
+                )
+                future_to_file[future] = local_path
                 
-                for local_path, s3_key in files:
-                    # Combine prefix and s3_key without extra slashes
-                    full_s3_key = os.path.join(args.prefix, s3_key).replace('\\', '/')
-                    future = executor.submit(
-                        upload_file, s3_client, local_path, args.bucket,
-                        full_s3_key, args.dry_run
-                    )
-                    future_to_file[future] = local_path
-                    
-                for future in as_completed(future_to_file):
-                    file_path = future_to_file[future]
-                    try:
-                        if not future.result():
-                            success = False
-                        # Add file size to total
-                        total_size += os.path.getsize(file_path)
-                        pbar.update(1)  # Update progress after each file
-                    except Exception as e:
-                        logger.error(f"{Fore.RED}Error uploading {file_path}: {str(e)}"
-                                   f"{Style.RESET_ALL}")
+            for future in as_completed(future_to_file):
+                file_path = future_to_file[future]
+                try:
+                    if not future.result():
                         success = False
-                        pbar.update(1)  # Update progress even on error
-                        
-        # Print summary report
-        print_summary_report(len(files), total_size, start_time)
+                except Exception as e:
+                    logger.error(f"{Fore.RED}Error uploading {file_path}: {str(e)}"
+                               f"{Style.RESET_ALL}")
+                    success = False
+                    
         return success
         
     except Exception as e:
