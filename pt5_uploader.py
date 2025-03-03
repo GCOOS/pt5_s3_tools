@@ -324,46 +324,52 @@ def upload_files(args: argparse.Namespace) -> bool:
         total_size = 0
         start_time = time.time()
         completed_files = 0
+        last_progress_time = time.time()
         
-        # Create progress bar for total files
-        with tqdm(total=total_files, desc="Uploading files", unit="file",
-                 bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}]') as pbar:
-            logger.info(f"{Fore.CYAN}Starting ThreadPoolExecutor with {max_workers} workers{Style.RESET_ALL}")
-            with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                future_to_file = {}
+        logger.info(f"{Fore.CYAN}Starting uploads...{Style.RESET_ALL}")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_file = {}
+            
+            for local_path, s3_key in files:
+                # Combine prefix and s3_key without extra slashes
+                full_s3_key = os.path.join(args.prefix, s3_key).replace('\\', '/')
+                logger.debug(f"{Fore.CYAN}Submitting upload for {local_path}{Style.RESET_ALL}")
+                future = executor.submit(
+                    upload_file, s3_client, local_path, args.bucket,
+                    full_s3_key, args.dry_run
+                )
+                future_to_file[future] = local_path
                 
-                for local_path, s3_key in files:
-                    # Combine prefix and s3_key without extra slashes
-                    full_s3_key = os.path.join(args.prefix, s3_key).replace('\\', '/')
-                    logger.debug(f"{Fore.CYAN}Submitting upload for {local_path}{Style.RESET_ALL}")
-                    future = executor.submit(
-                        upload_file, s3_client, local_path, args.bucket,
-                        full_s3_key, args.dry_run
-                    )
-                    future_to_file[future] = local_path
-                    
-                logger.info(f"{Fore.CYAN}All uploads submitted, waiting for completion{Style.RESET_ALL}")
-                for future in as_completed(future_to_file):
-                    file_path = future_to_file[future]
-                    try:
-                        if not future.result():
-                            success = False
-                        # Add file size to total
-                        file_size = os.path.getsize(file_path)
-                        total_size += file_size
-                        completed_files += 1
-                        # Update progress bar
-                        pbar.n = completed_files
-                        pbar.refresh()
-                        logger.debug(f"{Fore.GREEN}Successfully uploaded {file_path}{Style.RESET_ALL}")
-                    except Exception as e:
-                        logger.error(f"{Fore.RED}Error uploading {file_path}: {str(e)}"
-                                   f"{Style.RESET_ALL}")
+            logger.info(f"{Fore.CYAN}All uploads submitted, waiting for completion{Style.RESET_ALL}")
+            for future in as_completed(future_to_file):
+                file_path = future_to_file[future]
+                try:
+                    if not future.result():
                         success = False
-                        completed_files += 1
-                        pbar.n = completed_files
-                        pbar.refresh()
+                    # Add file size to total
+                    file_size = os.path.getsize(file_path)
+                    total_size += file_size
+                    completed_files += 1
+                    
+                    # Show progress every 100 files or 5 seconds
+                    current_time = time.time()
+                    if completed_files % 100 == 0 or (current_time - last_progress_time) >= 5:
+                        elapsed = current_time - start_time
+                        rate = total_size / elapsed if elapsed > 0 else 0
+                        files_per_second = completed_files / elapsed if elapsed > 0 else 0
+                        logger.info(f"{Fore.CYAN}Progress: {completed_files}/{total_files} files "
+                                  f"({(completed_files/total_files*100):.1f}%) - "
+                                  f"{format_size(rate)}/s - {files_per_second:.1f} files/s"
+                                  f"{Style.RESET_ALL}")
+                        last_progress_time = current_time
                         
+                    logger.debug(f"{Fore.GREEN}Successfully uploaded {file_path}{Style.RESET_ALL}")
+                except Exception as e:
+                    logger.error(f"{Fore.RED}Error uploading {file_path}: {str(e)}"
+                               f"{Style.RESET_ALL}")
+                    success = False
+                    completed_files += 1
+                    
         # Print summary report
         print_summary_report(total_files, total_size, start_time)
         return success
