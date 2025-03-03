@@ -324,24 +324,34 @@ def upload_files(args: argparse.Namespace) -> bool:
         total_size = 0
         start_time = time.time()
         
+        # Pre-compute all S3 keys
+        logger.info(f"{Fore.CYAN}Preparing upload tasks...{Style.RESET_ALL}")
+        upload_tasks = []
+        for local_path, s3_key in files:
+            full_s3_key = os.path.join(args.prefix, s3_key).replace('\\', '/')
+            upload_tasks.append((local_path, full_s3_key))
+        
         logger.info(f"{Fore.CYAN}Starting ThreadPoolExecutor with {max_workers} workers{Style.RESET_ALL}")
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             future_to_file = {}
             
             # Show progress during file submission
-            logger.info(f"{Fore.CYAN}Submitting files for upload...{Style.RESET_ALL}")
             with tqdm(total=total_files, desc="Submitting files", unit="file") as submit_pbar:
-                # Submit all files first
-                for local_path, s3_key in files:
-                    # Combine prefix and s3_key without extra slashes
-                    full_s3_key = os.path.join(args.prefix, s3_key).replace('\\', '/')
-                    logger.debug(f"{Fore.CYAN}Submitting upload for {local_path}{Style.RESET_ALL}")
-                    future = executor.submit(
-                        upload_file, s3_client, local_path, args.bucket,
-                        full_s3_key, args.dry_run
-                    )
-                    future_to_file[future] = local_path
-                    submit_pbar.update(1)  # Update submission progress
+                # Submit files in batches of 1000
+                batch_size = 1000
+                for i in range(0, len(upload_tasks), batch_size):
+                    batch = upload_tasks[i:i + batch_size]
+                    # Submit batch of files
+                    futures = [
+                        executor.submit(
+                            upload_file, s3_client, local_path, args.bucket,
+                            s3_key, args.dry_run
+                        ) for local_path, s3_key in batch
+                    ]
+                    # Map futures to file paths
+                    for future, (local_path, _) in zip(futures, batch):
+                        future_to_file[future] = local_path
+                    submit_pbar.update(len(batch))
                 
             logger.info(f"{Fore.CYAN}All uploads submitted, waiting for completion{Style.RESET_ALL}")
             
