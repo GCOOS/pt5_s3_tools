@@ -1,13 +1,24 @@
 #!/usr/bin/env python3
 """
-PT5 Uploader - A tool for uploading files to Amazon S3.
+PT5 Uploader - A tool for uploading Imaging FlowCytobot (IFCB) data files to 
+Amazon S3.
 
-This script provides functionality to upload files to Amazon S3 buckets with
-progress tracking and colorized output. It supports both single file and
-directory uploads with configurable options for bucket selection and file
-handling.
+This script is specifically designed for the GCOOS ORION project to manage and 
+upload IFCB (Imaging FlowCytobot) data files to Amazon S3. IFCB is an automated 
+submersible flow cytometer that provides continuous, high-resolution measurements 
+of phytoplankton and microzooplankton abundance and composition.
 
-Author: Neo
+Features:
+    - AWS credentials validation
+    - Support for IFCB data file uploads
+    - Recursive directory upload option
+    - Colorized console output
+    - Progress tracking with tqdm
+    - Dry-run mode for testing
+    - Environment variable configuration
+    - Detailed logging
+
+Author: robertdcurrier@tamu.edu
 """
 
 import argparse
