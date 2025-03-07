@@ -1,32 +1,36 @@
-# PT5 Uploader
+# PT5 S3 Tool
 
-A Python tool for efficiently uploading Imaging FlowCytobot (IFCB) data files to Amazon S3.
+A Python tool for efficiently transferring Imaging FlowCytobot (IFCB) data files to and from Amazon S3.
 
 ## Overview
 
-This tool is designed to efficiently upload IFCB data files to Amazon S3, with optimized performance for large file sets. It includes features for concurrent processing, progress tracking, and detailed reporting.
+This tool is designed to efficiently upload, download, list, and delete IFCB data files in Amazon S3, with optimized performance for large file sets. It includes features for concurrent processing, progress tracking, and detailed reporting.
 
 ## Features
 
 - AWS credentials validation
-- Support for IFCB data file uploads
-- Recursive directory upload option
+- Support for IFCB data file uploads and downloads
+- Recursive directory processing
 - Colorized console output
-- Concurrent file uploads (up to 32 workers)
+- Concurrent file transfers (up to 32 workers)
 - Connection pool optimization (100 connections)
 - Automatic retry on failures (3 attempts)
 - Batched file submission (1000 files per batch)
-- Pre-computed S3 keys for improved performance
+- Pre-computed paths for improved performance
 - Overall progress tracking with tqdm
 - Detailed summary report with:
   * Total files processed
   * Total data transferred
-  * Upload duration
+  * Transfer duration
   * Average transfer rate
   * Files processed per second
 - Dry-run mode for testing
-- Environment variable configuration
+- Environment variable configuration (automatically used when no args provided)
 - Detailed logging
+- S3 bucket listing capabilities
+- File filtering options for downloads
+- Fast bulk deletion of S3 objects
+- Simplified S3 URI handling with the --destination parameter
 
 ## System Requirements
 
@@ -39,8 +43,8 @@ This tool is designed to efficiently upload IFCB data files to Amazon S3, with o
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/pt5_uploader.git
-cd pt5_uploader
+git clone https://github.com/yourusername/pt5_s3_tool.git
+cd pt5_s3_tool
 ```
 
 2. Install required packages:
@@ -60,38 +64,121 @@ pip install -r requirements.txt
 
 ## Usage
 
-Basic usage:
-```bash
-python pt5_uploader.py --source /path/to/files
-```
+### Upload Files
 
-With options:
 ```bash
-python pt5_uploader.py \
+# Using the new --destination parameter (recommended)
+python pt5_s3_tool.py --source /path/to/files \
+    --destination s3://your-bucket/path/in/bucket \
+    --recursive
+
+# Using legacy parameters
+python pt5_s3_tool.py --mode upload \
     --source /path/to/files \
     --bucket your-bucket \
     --prefix path/in/bucket \
+    --recursive
+```
+
+### Download Files
+
+```bash
+# Using the new --destination parameter (recommended)
+python pt5_s3_tool.py --mode download \
+    --source s3://your-bucket/path/in/bucket \
+    --destination /local/path \
     --recursive \
-    --verbose
+    --filter "*.png"
+
+# Using legacy parameters
+python pt5_s3_tool.py --mode download \
+    --bucket your-bucket \
+    --prefix path/in/bucket \
+    --destination /local/path \
+    --recursive \
+    --filter "*.png"
+```
+
+### List Bucket Contents
+
+```bash
+# Using the new --destination parameter (recommended)
+python pt5_s3_tool.py --mode list \
+    --destination s3://your-bucket/path/in/bucket \
+    --recursive
+
+# Using legacy parameters
+python pt5_s3_tool.py --mode list \
+    --bucket your-bucket \
+    --prefix path/in/bucket \
+    --recursive
+```
+
+### Delete Files
+
+```bash
+# Using the new --destination parameter (recommended)
+python pt5_s3_tool.py --mode delete \
+    --destination s3://your-bucket/path/in/bucket \
+    --recursive
+
+# Alternative syntax with --delete flag
+python pt5_s3_tool.py --destination s3://your-bucket/path/in/bucket \
+    --delete \
+    --recursive \
+    --filter "*.tmp"
+
+# Using legacy parameters
+python pt5_s3_tool.py --mode delete \
+    --bucket your-bucket \
+    --prefix path/in/bucket \
+    --recursive
+```
+
+### Using Environment Variables
+
+If you've set up the `.env` file with `AWS_UPLOAD_URL` and `IFCB_DATA_DIR`, you can run the tool without arguments:
+
+```bash
+# Uses environment variables for source and destination
+python pt5_s3_tool.py
 ```
 
 ### Command Line Options
 
-- `--source`: Source file or directory to upload
-- `--bucket`: Target S3 bucket name
-- `--prefix`: S3 key prefix (optional)
-- `--recursive`: Upload directories recursively
-- `--dry-run`: Show what would be uploaded without actually uploading
+#### Common Options
+- `--mode`: Operation mode (`upload`, `download`, `list`, or `delete`)
+- `--destination`: S3 destination in format s3://bucket/prefix for uploads, or local directory for downloads
+- `--recursive`: Process directories recursively
+- `--dry-run`: Show what would be transferred without actually transferring
 - `--verbose`: Enable verbose logging
 - `--validate`: Only validate AWS credentials and exit
+
+#### Legacy Options (deprecated, use --destination instead)
+- `--bucket`: Target S3 bucket name
+- `--prefix`: S3 key prefix
+
+#### Upload Options
+- `--source`: Source file or directory to upload
+
+#### Download Options
+- `--source`: S3 prefix to download from (can be in s3://bucket/prefix format)
+- `--destination`: Local directory to download files to
+- `--overwrite`: Overwrite existing files when downloading
+- `--filter`: Filter pattern for files to download (e.g., "*.png")
+
+#### Delete Options
+- `--delete`: Alternative to --mode delete, confirms deletion intent
+- `--filter`: Filter pattern for files to delete (e.g., "*.tmp")
 
 ## Performance Considerations
 
 The tool is optimized for large file sets with the following features:
 - Batched file submission (1000 files per batch)
-- Pre-computed S3 keys
+- Pre-computed paths
 - Optimized connection pooling
-- Concurrent upload processing
+- Concurrent processing
+- S3 bulk delete API for fast deletions
 
 For optimal performance, ensure your system has:
 - Sufficient CPU cores for concurrent processing
@@ -105,9 +192,9 @@ The tool includes comprehensive error handling for:
 - AWS credential validation
 - File system operations
 - Network connectivity issues
-- S3 upload failures
+- S3 transfer failures
 
-Failed uploads are logged with detailed error messages.
+Failed operations are logged with detailed error messages.
 
 ## Development
 
