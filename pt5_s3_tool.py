@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 """
-PT5 S3 Tool - A tool for uploading, downloading, listing, and deleting Imaging 
-FlowCytobot (IFCB) data files to/from Amazon S3.
+PT5 S3 Tool - A tool for copying files between local and S3 locations.
 
 This script is specifically designed for the GCOOS ORION project to manage and 
 transfer IFCB (Imaging FlowCytobot) data files to/from Amazon S3. IFCB is an 
@@ -10,8 +9,8 @@ measurements of phytoplankton and microzooplankton abundance and composition.
 
 Features:
     - AWS credentials validation
-    - Support for IFCB data file uploads and downloads
-    - Recursive directory upload/download option
+    - Support for IFCB data file transfers
+    - Recursive directory operations
     - Colorized console output
     - Concurrent file transfers (up to 32 workers)
     - Connection pool optimization (100 connections)
@@ -28,37 +27,34 @@ Features:
     - Dry-run mode for testing
     - Environment variable configuration (automatically used when no args provided)
     - Detailed logging
-    - S3 bucket listing capabilities
-    - File filtering options for downloads
+    - File filtering options
     - Fast bulk deletion of S3 objects
-    - Simplified S3 URI handling with the --destination parameter
+    - Simplified S3 URI handling
 
 Usage Examples:
-    # Upload files using the new --destination parameter
+    # Download from S3 to local
+    python pt5_s3_tool.py --source s3://bucket-name/prefix \
+        --destination /local/path
+
+    # Upload from local to S3
     python pt5_s3_tool.py --source /path/to/files \
-        --destination s3://your-bucket/path/in/bucket \
-        --recursive
+        --destination s3://bucket-name/prefix
 
-    # Download files using the new --destination parameter
-    python pt5_s3_tool.py --mode download \
-        --source s3://your-bucket/path/in/bucket \
-        --destination /local/path \
-        --recursive
+    # Copy with recursive option
+    python pt5_s3_tool.py --source s3://bucket-name/prefix \
+        --destination /local/path --recursive
 
-    # List bucket contents
-    python pt5_s3_tool.py --mode list \
-        --destination s3://your-bucket/path/in/bucket \
-        --recursive
+    # Copy with file filter
+    python pt5_s3_tool.py --source s3://bucket-name/prefix \
+        --destination /local/path --filter '*.jpg'
 
-    # Delete files
-    python pt5_s3_tool.py --mode delete \
-        --destination s3://your-bucket/path/in/bucket \
-        --recursive
+    # Dry run to preview changes
+    python pt5_s3_tool.py --source s3://bucket-name/prefix \
+        --destination /local/path --dry-run
 
-    # Alternative delete syntax with --delete flag
-    python pt5_s3_tool.py --destination s3://your-bucket/path/in/bucket \
-        --delete \
-        --recursive
+    # Delete files from S3
+    python pt5_s3_tool.py --destination s3://bucket-name/prefix \
+        --delete [--recursive] [--filter '*.jpg']
 
     # Using environment variables (no arguments needed)
     python pt5_s3_tool.py
@@ -156,47 +152,19 @@ def setup_argparse() -> argparse.ArgumentParser:
             default_destination += f"/{default_prefix}"
 
     parser = argparse.ArgumentParser(
-        description='Transfer files to/from Amazon S3 with progress tracking'
-    )
-    
-    # Add operation mode argument
-    parser.add_argument(
-        '--mode',
-        choices=['upload', 'download', 'list', 'delete'],
-        default='upload',
-        help='Operation mode: upload, download, list files, or delete files'
+        description='Copy files between local and S3 locations'
     )
     
     # Source/destination arguments
     parser.add_argument(
         '--source',
-        help='Source file or directory (for upload) or S3 prefix '
-             '(for download)',
+        help='Source location (local path or s3://bucket/prefix)',
         default=default_source
     )
     parser.add_argument(
         '--destination',
-        help='S3 destination in format s3://bucket/prefix for uploads, '
-             'or local directory for downloads',
+        help='Destination location (local path or s3://bucket/prefix)',
         default=default_destination
-    )
-    parser.add_argument(
-        '--destination-dir',
-        dest='destination',
-        help='Alias for --destination, for downloads to local directory',
-        default=default_destination
-    )
-    
-    # Keep original parameters for backward compatibility
-    parser.add_argument(
-        '--bucket',
-        help='Target S3 bucket name (deprecated, use --destination instead)',
-        default=default_bucket
-    )
-    parser.add_argument(
-        '--prefix',
-        help='S3 key prefix (deprecated, use --destination instead)',
-        default=default_prefix
     )
     
     # Common options
@@ -229,7 +197,7 @@ def setup_argparse() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         '--filter',
-        help='Filter pattern for files to download (e.g., "*.png")'
+        help='Filter pattern for files to process (e.g., "*.png")'
     )
     
     # Delete option
@@ -243,8 +211,22 @@ def setup_argparse() -> argparse.ArgumentParser:
 
 def validate_args(args: argparse.Namespace) -> bool:
     """Validate command line arguments based on operation mode."""
-    # Parse destination if provided in s3:// format
-    if args.destination and args.destination.startswith('s3://'):
+    # Parse source if it's in s3:// format
+    if args.source and args.source.startswith('s3://'):
+        # Extract bucket and prefix from s3://bucket/prefix format
+        s3_path = args.source[5:]  # Remove 's3://'
+        parts = s3_path.split('/', 1)  # Split at first '/'
+        
+        # Set bucket and prefix from source
+        args.bucket = parts[0]
+        args.prefix = parts[1] if len(parts) > 1 else ''
+        
+        logger.info(
+            f"{Fore.CYAN}Using source: {args.source} "
+            f"(bucket: {args.bucket}, prefix: {args.prefix}){Style.RESET_ALL}"
+        )
+    # Parse destination if it's in s3:// format
+    elif args.destination and args.destination.startswith('s3://'):
         # Extract bucket and prefix from s3://bucket/prefix format
         s3_path = args.destination[5:]  # Remove 's3://'
         parts = s3_path.split('/', 1)  # Split at first '/'
@@ -257,65 +239,43 @@ def validate_args(args: argparse.Namespace) -> bool:
             f"{Fore.CYAN}Using destination: {args.destination} "
             f"(bucket: {args.bucket}, prefix: {args.prefix}){Style.RESET_ALL}"
         )
-    
-    # Common validation for all modes
-    if not args.bucket:
+    else:
         logger.error(
-            f"{Fore.RED}Error: S3 bucket not specified. "
-            f"Use --destination s3://bucket/prefix "
-            f"or set AWS_UPLOAD_URL environment variable{Style.RESET_ALL}"
+            f"{Fore.RED}Error: Either source or destination must be an S3 URL "
+            f"(s3://bucket/prefix){Style.RESET_ALL}"
         )
         return False
         
-    # Mode-specific validation
-    if args.mode == 'upload':
-        if not args.source:
-            # Check if we're using environment variables
-            default_source = get_default_source()
-            if default_source:
-                args.source = default_source
-                logger.info(
-                    f"{Fore.CYAN}Using source from environment: "
-                    f"{args.source}{Style.RESET_ALL}"
-                )
-            else:
-                logger.error(
-                    f"{Fore.RED}Error: Source path not specified and "
-                    f"IFCB_DATA_DIR not set{Style.RESET_ALL}"
-                )
-                return False
-                
+    # Common validation for all operations
+    if not args.bucket:
+        logger.error(
+            f"{Fore.RED}Error: S3 bucket not specified. "
+            f"Use s3://bucket/prefix format for S3 locations{Style.RESET_ALL}"
+        )
+        return False
+        
+    # Validate local paths
+    if args.source and not args.source.startswith('s3://'):
         if not os.path.exists(args.source):
             logger.error(
                 f"{Fore.RED}Error: Source path does not exist: "
                 f"{args.source}{Style.RESET_ALL}"
             )
             return False
-    elif args.mode == 'download':
-        if not args.prefix and not args.source:
+            
+    if args.destination and not args.destination.startswith('s3://'):
+        try:
+            os.makedirs(args.destination, exist_ok=True)
+            logger.info(
+                f"{Fore.CYAN}Created destination directory: "
+                f"{args.destination}{Style.RESET_ALL}"
+            )
+        except Exception as e:
             logger.error(
-                f"{Fore.RED}Error: Either --prefix or --source must be "
-                f"specified for download mode{Style.RESET_ALL}"
+                f"{Fore.RED}Error creating destination directory: "
+                f"{args.destination} - {str(e)}{Style.RESET_ALL}"
             )
             return False
-        
-        # For download mode, destination is a local directory
-        if not args.destination or args.destination.startswith('s3://'):
-            args.destination = '.'  # Default to current directory
-            
-        if not os.path.exists(args.destination):
-            try:
-                os.makedirs(args.destination, exist_ok=True)
-                logger.info(
-                    f"{Fore.CYAN}Created destination directory: "
-                    f"{args.destination}{Style.RESET_ALL}"
-                )
-            except Exception as e:
-                logger.error(
-                    f"{Fore.RED}Error creating destination directory: "
-                    f"{args.destination} - {str(e)}{Style.RESET_ALL}"
-                )
-                return False
     
     return True
 
@@ -461,20 +421,12 @@ def process_dry_run_upload(
     args: argparse.Namespace
 ) -> bool:
     """Process dry run for upload operation."""
+    total_size = sum(os.path.getsize(local_path) for local_path, _ in files)
     logger.info(
-        f"{Fore.CYAN}Found {len(files)} files to upload:"
-        f"{Style.RESET_ALL}"
+        f"{Fore.CYAN}Dry run - would upload {len(files)} files "
+        f"({format_size(total_size)}) from {args.source} "
+        f"to s3://{args.bucket}/{args.prefix}{Style.RESET_ALL}"
     )
-    for local_path, s3_key in files:
-        # Combine prefix and s3_key without extra slashes
-        full_s3_key = os.path.join(args.prefix, s3_key).replace(
-            '\\', '/'
-        )
-        logger.info(
-            f"{Fore.CYAN}  {local_path} -> "
-            f"s3://{args.bucket}/{full_s3_key}"
-            f"{Style.RESET_ALL}"
-        )
     return True
 
 def submit_upload_tasks(
@@ -708,6 +660,10 @@ def parse_s3_source(source: str) -> Tuple[str, str]:
     bucket = parts[0]
     prefix = parts[1] if len(parts) > 1 else ''
     
+    # Remove trailing slash from prefix if present
+    if prefix.endswith('/'):
+        prefix = prefix[:-1]
+    
     return bucket, prefix
 
 def prepare_download_tasks(
@@ -736,20 +692,12 @@ def process_dry_run_download(
     args: argparse.Namespace
 ) -> bool:
     """Process dry run for download operation."""
-    for obj in objects:
-        s3_key = obj['Key']
-        # Remove prefix from key to create relative path
-        rel_path = s3_key
-        if prefix and s3_key.startswith(prefix):
-            rel_path = s3_key[len(prefix):]
-            if rel_path.startswith('/'):
-                rel_path = rel_path[1:]
-                
-        local_path = os.path.join(args.destination, rel_path)
-        logger.info(
-            f"{Fore.CYAN}  s3://{args.bucket}/{s3_key} -> "
-            f"{local_path}{Style.RESET_ALL}"
-        )
+    total_size = sum(obj['Size'] for obj in objects)
+    logger.info(
+        f"{Fore.CYAN}Dry run - would download {len(objects)} files "
+        f"({format_size(total_size)}) from s3://{args.bucket}/{args.prefix} "
+        f"to {args.destination}{Style.RESET_ALL}"
+    )
     return True
 
 def download_file(
@@ -914,18 +862,15 @@ def download_files(
         # Configure S3 client
         s3_client = configure_s3_client()
         
-        # Use source as prefix if provided, otherwise use prefix
-        prefix = args.source if args.source else args.prefix
-        
         # List objects to download
         logger.info(
             f"{Fore.CYAN}Listing objects in bucket {args.bucket} "
-            f"with prefix {prefix}{Style.RESET_ALL}"
+            f"with prefix {args.prefix}{Style.RESET_ALL}"
         )
         objects = list_s3_objects(
             s3_client, 
             args.bucket, 
-            prefix, 
+            args.prefix,  # Use the parsed prefix, not the full S3 URL
             args.recursive,
             args.filter
         )
@@ -945,7 +890,7 @@ def download_files(
         
         # Handle dry run
         if args.dry_run:
-            return process_dry_run_download(objects, prefix, args)
+            return process_dry_run_download(objects, args.prefix, args)
             
         # Set up concurrent execution
         max_workers = min(32, total_files)  # Limit to 32 concurrent downloads
@@ -957,7 +902,7 @@ def download_files(
         # Initialize statistics and prepare tasks
         start_time = time.time()
         download_tasks = prepare_download_tasks(
-            objects, prefix, args.destination
+            objects, args.prefix, args.destination
         )
         
         logger.info(
@@ -1081,17 +1026,16 @@ def list_bucket_contents(
 
 def process_dry_run_delete(
     objects: List[dict],
-    bucket: str
+    bucket: str,
+    prefix: str
 ) -> bool:
     """Process dry run for delete operation."""
+    total_size = sum(obj['Size'] for obj in objects)
     logger.info(
-        f"{Fore.CYAN}Dry run - would delete:{Style.RESET_ALL}"
+        f"{Fore.CYAN}Dry run - would delete {len(objects)} files "
+        f"({format_size(total_size)}) from s3://{bucket}/{prefix}"
+        f"{Style.RESET_ALL}"
     )
-    for obj in objects:
-        logger.info(
-            f"{Fore.CYAN}  s3://{bucket}/{obj['Key']}"
-            f"{Style.RESET_ALL}"
-        )
     return True
 
 def batch_delete_objects(
@@ -1210,7 +1154,7 @@ def delete_files(
         
         # Handle dry run
         if args.dry_run:
-            return process_dry_run_delete(objects, bucket)
+            return process_dry_run_delete(objects, bucket, prefix)
             
         # Initialize statistics
         start_time = time.time()
@@ -1239,47 +1183,71 @@ def delete_files(
 def print_usage_examples() -> None:
     """Print usage examples for the tool."""
     print("\nExamples:")
-    print("  Upload files:")
+    print("  Copy from S3 to local:")
+    print("    ./pt5_s3_tool.py --source s3://bucket-name/prefix \\")
+    print("      --destination /local/path")
+    print("  Copy from local to S3:")
     print("    ./pt5_s3_tool.py --source /path/to/files \\")
     print("      --destination s3://bucket-name/prefix")
-    print("  Download files:")
-    print("    ./pt5_s3_tool.py --mode download \\")
-    print("      --destination /local/path \\")
-    print("      --source s3://bucket-name/prefix")
-    print("  List bucket contents:")
-    print("    ./pt5_s3_tool.py --mode list \\")
-    print("      --destination s3://bucket-name/prefix")
+    print("  Copy with recursive option:")
+    print("    ./pt5_s3_tool.py --source s3://bucket-name/prefix \\")
+    print("      --destination /local/path --recursive")
+    print("  Copy with file filter:")
+    print("    ./pt5_s3_tool.py --source s3://bucket-name/prefix \\")
+    print("      --destination /local/path --filter '*.jpg'")
+    print("  Dry run to preview changes:")
+    print("    ./pt5_s3_tool.py --source s3://bucket-name/prefix \\")
+    print("      --destination /local/path --dry-run")
     print("  Delete files from S3:")
-    print("    ./pt5_s3_tool.py --mode delete \\")
-    print("      --destination s3://bucket-name/prefix [--recursive]")
     print("    ./pt5_s3_tool.py --destination s3://bucket-name/prefix \\")
     print("      --delete [--recursive] [--filter '*.jpg']")
+    print("  Dry run delete:")
+    print("    ./pt5_s3_tool.py --destination s3://bucket-name/prefix \\")
+    print("      --delete --dry-run")
 
 def execute_operation(args: argparse.Namespace) -> bool:
-    """Execute the requested operation based on mode."""
-    if args.mode == 'upload':
-        logger.info(
-            f"{Fore.GREEN}Starting upload process...{Style.RESET_ALL}"
-        )
-        return upload_files(args)
-    elif args.mode == 'download':
-        logger.info(
-            f"{Fore.GREEN}Starting download process...{Style.RESET_ALL}"
-        )
-        return download_files(args)
-    elif args.mode == 'list':
-        logger.info(
-            f"{Fore.GREEN}Listing bucket contents...{Style.RESET_ALL}"
-        )
-        return list_bucket_contents(args)
-    elif args.mode == 'delete':
-        logger.info(
-            f"{Fore.GREEN}Deleting files from S3...{Style.RESET_ALL}"
-        )
-        return delete_files(args)
-    else:
+    """Execute the requested operation based on source and destination."""
+    try:
+        # Configure S3 client
+        s3_client = configure_s3_client()
+        
+        # Handle delete operation
+        if args.delete:
+            if not args.destination or not args.destination.startswith('s3://'):
+                logger.error(
+                    f"{Fore.RED}Error: --destination must be an S3 URL "
+                    f"(s3://bucket/prefix) for delete operation{Style.RESET_ALL}"
+                )
+                return False
+            logger.info(
+                f"{Fore.GREEN}Starting delete operation...{Style.RESET_ALL}"
+            )
+            return delete_files(args)
+        
+        # Determine operation type based on source/destination
+        is_download = args.source and args.source.startswith('s3://')
+        is_upload = args.destination and args.destination.startswith('s3://')
+        
+        if is_download:
+            logger.info(
+                f"{Fore.GREEN}Starting download from S3...{Style.RESET_ALL}"
+            )
+            return download_files(args)
+        elif is_upload:
+            logger.info(
+                f"{Fore.GREEN}Starting upload to S3...{Style.RESET_ALL}"
+            )
+            return upload_files(args)
+        else:
+            logger.error(
+                f"{Fore.RED}Error: Invalid operation. Either source or "
+                f"destination must be an S3 URL{Style.RESET_ALL}"
+            )
+            return False
+            
+    except Exception as e:
         logger.error(
-            f"{Fore.RED}Invalid mode: {args.mode}{Style.RESET_ALL}"
+            f"{Fore.RED}Error during operation: {str(e)}{Style.RESET_ALL}"
         )
         return False
 
@@ -1311,12 +1279,6 @@ def main() -> int:
         logger.info(
             f"{Fore.CYAN}Using environment variables as defaults{Style.RESET_ALL}"
         )
-        # Set default mode to upload if not specified
-        if not args.mode or args.mode == 'upload':
-            logger.info(
-                f"{Fore.CYAN}Using default mode: upload{Style.RESET_ALL}"
-            )
-            args.mode = 'upload'
 
     # If --validate is set, only check credentials and exit
     if args.validate:
@@ -1324,10 +1286,6 @@ def main() -> int:
             f"{Fore.CYAN}Validating AWS credentials...{Style.RESET_ALL}"
         )
         return 0 if validate_aws_credentials() else 1
-
-    # If --delete is specified, set mode to delete
-    if args.delete:
-        args.mode = 'delete'
 
     if not validate_args(args):
         return 1
