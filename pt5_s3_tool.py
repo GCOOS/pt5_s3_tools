@@ -31,6 +31,12 @@ Features:
     - Fast bulk deletion of S3 objects
     - Simplified S3 URI handling
 
+Environment Variables:
+    - IFCB_DATA_DIR: Default source directory for uploads
+    - AWS_UPLOAD_URL: Default S3 destination (s3://bucket/prefix)
+    Note: Environment variables are only used as defaults when no command-line
+    arguments are provided. Command-line arguments always take precedence.
+
 Usage Examples:
     # Download from S3 to local
     python pt5_s3_tool.py --source s3://bucket-name/prefix \
@@ -52,9 +58,17 @@ Usage Examples:
     python pt5_s3_tool.py --source s3://bucket-name/prefix \
         --destination /local/path --dry-run
 
-    # Delete files from S3
+    # Delete files from S3 (using --source)
+    python pt5_s3_tool.py --source s3://bucket-name/prefix \
+        --delete [--recursive] [--filter '*.jpg']
+
+    # Delete files from S3 (using --destination)
     python pt5_s3_tool.py --destination s3://bucket-name/prefix \
         --delete [--recursive] [--filter '*.jpg']
+
+    # Dry run delete
+    python pt5_s3_tool.py --source s3://bucket-name/prefix \
+        --delete --dry-run
 
     # Using environment variables (no arguments needed)
     python pt5_s3_tool.py
@@ -1198,11 +1212,14 @@ def print_usage_examples() -> None:
     print("  Dry run to preview changes:")
     print("    ./pt5_s3_tool.py --source s3://bucket-name/prefix \\")
     print("      --destination /local/path --dry-run")
-    print("  Delete files from S3:")
+    print("  Delete files from S3 (using --source):")
+    print("    ./pt5_s3_tool.py --source s3://bucket-name/prefix \\")
+    print("      --delete [--recursive] [--filter '*.jpg']")
+    print("  Delete files from S3 (using --destination):")
     print("    ./pt5_s3_tool.py --destination s3://bucket-name/prefix \\")
     print("      --delete [--recursive] [--filter '*.jpg']")
     print("  Dry run delete:")
-    print("    ./pt5_s3_tool.py --destination s3://bucket-name/prefix \\")
+    print("    ./pt5_s3_tool.py --source s3://bucket-name/prefix \\")
     print("      --delete --dry-run")
 
 def execute_operation(args: argparse.Namespace) -> bool:
@@ -1213,10 +1230,14 @@ def execute_operation(args: argparse.Namespace) -> bool:
         
         # Handle delete operation
         if args.delete:
+            # Use source if destination is not provided
+            if not args.destination and args.source and args.source.startswith('s3://'):
+                args.destination = args.source
+                
             if not args.destination or not args.destination.startswith('s3://'):
                 logger.error(
-                    f"{Fore.RED}Error: --destination must be an S3 URL "
-                    f"(s3://bucket/prefix) for delete operation{Style.RESET_ALL}"
+                    f"{Fore.RED}Error: Either --source or --destination must be an "
+                    f"S3 URL (s3://bucket/prefix) for delete operation{Style.RESET_ALL}"
                 )
                 return False
             logger.info(
