@@ -111,6 +111,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Suppress boto3's INFO messages about finding credentials
+logging.getLogger('boto3.credentials').setLevel(logging.WARNING)
+logging.getLogger('botocore.credentials').setLevel(logging.WARNING)
+
 def validate_aws_credentials() -> bool:
     """Validate AWS credentials by making a simple API call."""
     try:
